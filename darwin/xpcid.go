@@ -72,7 +72,6 @@ func initXpcIDs() error {
 		cmdAdvertiseStop = 9
 		cmdServicesAdd = 10
 		cmdServicesRemove = 12
-
 		cmdSendData = 13
 		cmdSubscribed = 15
 		cmdScanningStart = 29
@@ -117,14 +116,19 @@ func initXpcIDs() error {
 		evtMasterConnectionComplete = 82
 
 		serviceID = "com.apple.blued"
-	} else {
+
+		return nil
+	}
+
+	if utsname.Release < "18." {
 		// high sierra
-		cmdSendData = 21
-		cmdSubscribed = 22
 		cmdAdvertiseStart = 16
 		cmdAdvertiseStop = 17
 		cmdServicesAdd = 18
 		cmdServicesRemove = 19
+
+		cmdSendData = 21
+		cmdSubscribed = 22
 		cmdScanningStart = 44
 		cmdScanningStop = 45
 		cmdConnect = 46
@@ -141,18 +145,6 @@ func initXpcIDs() error {
 		cmdWriteDescriptor = 89
 
 		evtStateChanged = 4
-		evtPeripheralDiscovered = 48
-		evtPeripheralConnected = 49
-		evtPeripheralDisconnected = 50
-		evtRSSIRead = 71
-		evtServiceDiscovered = 72
-		evtCharacteristicsDiscovered = 77
-		evtCharacteristicRead = 83
-		evtCharacteristicWritten = 84
-		evtNotificationValueSet = 86
-		evtDescriptorsDiscovered = 87
-		evtDescriptorRead = 90
-		evtDescriptorWritten = 91
 		evtAdvertisingStarted = 27
 		evtAdvertisingStopped = 28
 		evtServiceAdded = 29
@@ -161,12 +153,28 @@ func initXpcIDs() error {
 		evtSubscribe = 32
 		evtUnsubscribe = 33
 		evtConfirmation = 34
+		evtPeripheralDiscovered = 48
+		evtPeripheralConnected = 49
+		evtPeripheralDisconnected = 50
 		evtATTMTU = 57
-		evtSlaveConnectionComplete = 60 // should be called params update
-		evtMasterConnectionComplete = 59 //not confident
+		evtRSSIRead = 71
+		evtServiceDiscovered = 72
 		evtIncludedServicesDiscovered = 76
+		evtCharacteristicsDiscovered = 77
+		evtCharacteristicRead = 83
+		evtCharacteristicWritten = 84
+		evtNotificationValueSet = 86
+		evtDescriptorsDiscovered = 87
+		evtDescriptorRead = 90
+		evtDescriptorWritten = 91
+		evtSlaveConnectionComplete = 92  // should be called params update
+		evtMasterConnectionComplete = 93 //not confident
+		//evtSlaveConnectionComplete = 60 // should be called params update
+		//evtMasterConnectionComplete = 59 //not confident
 
 		serviceID = "com.apple.bluetoothd"
+
+		return nil
 	}
 
 	return nil
