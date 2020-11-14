@@ -72,6 +72,7 @@ func initXpcIDs() error {
 		cmdAdvertiseStop = 9
 		cmdServicesAdd = 10
 		cmdServicesRemove = 12
+
 		cmdSendData = 13
 		cmdSubscribed = 15
 		cmdScanningStart = 29
@@ -173,6 +174,7 @@ func initXpcIDs() error {
 		//evtMasterConnectionComplete = 59 //not confident
 
 		serviceID = "com.apple.bluetoothd"
+		serviceID = "com.apple.blued"
 
 		return nil
 	}

@@ -400,7 +400,7 @@ func (d *Device) HandleXpcEvent(event xpc.Dict, err error) {
 	}
 	m := msg(event)
 	args := msg(msg(event).args())
-	logger.Info("recv", "id", m.id(), "args", fmt.Sprintf("%v", m.args()))
+	Logger.Info("recv", "id", m.id(), "args", fmt.Sprintf("%v", m.args()))
 
 	switch m.id() {
 	case // Device event
@@ -563,7 +563,7 @@ func (d *Device) sendReq(x xpc.XPC, id int, args xpc.Dict) (msg, error) {
 }
 
 func (d *Device) sendCmd(x xpc.XPC, id int, args xpc.Dict) error {
-	logger.Info("send", "id", id, "args", fmt.Sprintf("%v", args))
+	Logger.Info("send", "id", id, "args", fmt.Sprintf("%v", args))
 	x.Send(xpc.Dict{"kCBMsgId": id, "kCBMsgArgs": args}, false)
 	return nil
 }

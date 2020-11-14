@@ -15,7 +15,7 @@ import (
 
 var (
 	device = flag.String("device", "default", "implementation of ble")
-	du     = flag.Duration("du", 5*time.Second, "advertising duration, 0 for indefinitely")
+	du     = flag.Duration("du", 500*time.Second, "advertising duration, 0 for indefinitely")
 )
 
 func main() {
