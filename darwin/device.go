@@ -515,8 +515,9 @@ func (d *Device) HandleXpcEvent(event xpc.Dict, err error) {
 
 		sub := c.subs[uint16(args.characteristicHandle())]
 		if sub == nil {
-			log.Printf("notified by unsubscribed handle")
+			//log.Printf("notified by unsubscribed handle")
 			// FIXME: should terminate the connection?
+			d.conn(args).rspc <- m
 		} else {
 			sub.fn(args.data())
 		}
