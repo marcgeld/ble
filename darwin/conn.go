@@ -139,7 +139,7 @@ func (c *conn) sendReq(id int, args xpc.Dict) (msg, error) {
 	select {
 	case m := <-c.rspc:
 		return msg(m.args()), nil
-	case <-time.After(time.Millisecond * 500):
+	case <-time.After(time.Millisecond * 1000):
 		return msg{}, errors.New("timeout")
 	}
 }
