@@ -2,8 +2,10 @@ package darwin
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/go-ble/ble"
 	"github.com/raff/goble/xpc"
@@ -134,8 +136,12 @@ func (c *conn) sendReq(id int, args xpc.Dict) (msg, error) {
 	if err != nil {
 		return msg{}, err
 	}
-	m := <-c.rspc
-	return msg(m.args()), nil
+	select {
+	case m := <-c.rspc:
+		return msg(m.args()), nil
+	case <-time.After(time.Millisecond * 500):
+		return msg{}, errors.New("timeout")
+	}
 }
 
 func (c *conn) sendCmd(id int, args xpc.Dict) error {
