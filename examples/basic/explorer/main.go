@@ -16,9 +16,9 @@ import (
 var (
 	device = flag.String("device", "default", "implementation of ble")
 	name   = flag.String("name", "Gopher", "name of remote peripheral")
-	addr   = flag.String("addr", "", "address of remote peripheral (MAC on Linux, UUID on OS X)")
+	addr   = flag.String("addr", "adce183268914777af3e627eeb3c6717", "address of remote peripheral (MAC on Linux, UUID on OS X)")
 	sub    = flag.Duration("sub", 0, "subscribe to notification and indication for a specified period")
-	sd     = flag.Duration("sd", 5*time.Second, "scanning duration, 0 for indefinitely")
+	sd     = flag.Duration("sd", 10*time.Second, "scanning duration, 0 for indefinitely")
 )
 
 func main() {
@@ -81,17 +81,19 @@ func explore(cln ble.Client, p *ble.Profile) error {
 	for _, s := range p.Services {
 		fmt.Printf("    Service: %s %s, Handle (0x%02X)\n", s.UUID, ble.Name(s.UUID), s.Handle)
 
+		continue
+
 		for _, c := range s.Characteristics {
 			fmt.Printf("      Characteristic: %s %s, Property: 0x%02X (%s), Handle(0x%02X), VHandle(0x%02X)\n",
 				c.UUID, ble.Name(c.UUID), c.Property, propString(c.Property), c.Handle, c.ValueHandle)
-			if (c.Property & ble.CharRead) != 0 {
-				b, err := cln.ReadCharacteristic(c)
-				if err != nil {
-					fmt.Printf("Failed to read characteristic: %s\n", err)
-					continue
-				}
-				fmt.Printf("        Value         %x | %q\n", b, b)
-			}
+			//if (c.Property & ble.CharRead) != 0 {
+			//	b, err := cln.ReadCharacteristic(c)
+			//	if err != nil {
+			//		fmt.Printf("Failed to read characteristic: %s\n", err)
+			//		continue
+			//	}
+			//	fmt.Printf("        Value         %x | %q\n", b, b)
+			//}
 
 			for _, d := range c.Descriptors {
 				fmt.Printf("        Descriptor: %s %s, Handle(0x%02x)\n", d.UUID, ble.Name(d.UUID), d.Handle)
