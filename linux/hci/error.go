@@ -12,7 +12,7 @@ var (
 )
 
 // HCI Command Errors  [Vol2, Part D, 1.3 ]
-// FIXME: Terrible shorthand. Name them properly.
+// FIXME: Terrible shorthand. String them properly.
 const (
 	ErrUnknownCommand       ErrCommand = 0x01 // Unknown HCI Command
 	ErrConnID               ErrCommand = 0x02 // Unknown Connection Identifier

@@ -41,7 +41,7 @@ func advHandler(a ble.Advertisement) {
 	}
 	comma := ""
 	if len(a.LocalName()) > 0 {
-		fmt.Printf(" Name: %s", a.LocalName())
+		fmt.Printf(" String: %s", a.LocalName())
 		comma = ","
 	}
 	if len(a.Services()) > 0 {
