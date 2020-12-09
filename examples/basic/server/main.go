@@ -4,13 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/go-ble/ble/darwin"
+	"github.com/marcgeld/ble/darwin"
 	"log"
 	"time"
 
-	"github.com/go-ble/ble"
-	"github.com/go-ble/ble/examples/lib"
-	"github.com/go-ble/ble/examples/lib/dev"
+	"github.com/marcgeld/ble"
+	"github.com/marcgeld/ble/examples/lib"
+	"github.com/marcgeld/ble/examples/lib/dev"
 	"github.com/pkg/errors"
 )
 

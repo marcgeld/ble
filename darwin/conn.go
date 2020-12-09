@@ -2,12 +2,12 @@ package darwin
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
-	"time"
 
-	"github.com/go-ble/ble"
 	"github.com/JuulLabs-OSS/cbgo"
+	"github.com/marcgeld/ble"
 )
 
 // newGenConn creates a new generic (role-less) connection.  This should not be
@@ -211,8 +211,6 @@ func (c *conn) addSub(char *ble.Characteristic, fn ble.NotificationHandler) {
 		fn:   fn,
 		char: char,
 	}
-	m := <-c.rspc
-	return msg(m.args()), nil
 }
 
 // delSub stops listening for unsolicited notifications and indications for a

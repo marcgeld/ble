@@ -4,8 +4,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/go-ble/ble/linux/hci/cmd"
-	"github.com/go-ble/ble/linux/hci/evt"
+	"github.com/marcgeld/ble/linux/hci/cmd"
+	"github.com/marcgeld/ble/linux/hci/evt"
 )
 
 // SetConnectedHandler sets handler to be called when new connection is established.

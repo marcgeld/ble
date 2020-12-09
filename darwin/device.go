@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-ble/ble"
+	"github.com/marcgeld/ble"
 	"github.com/JuulLabs-OSS/cbgo"
 
 	"sync"
