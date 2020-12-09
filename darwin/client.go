@@ -3,8 +3,8 @@ package darwin
 import (
 	"fmt"
 
-	"github.com/go-ble/ble"
 	"github.com/JuulLabs-OSS/cbgo"
+	"github.com/go-ble/ble"
 )
 
 // A Client is a GATT client.
