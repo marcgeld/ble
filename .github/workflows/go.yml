@@ -30,10 +30,7 @@ jobs:
         fi
 
     - name: Install gobjc++
-      run: |
-        sudo apt install gobjc++-mingw-w64
-        sudo apt-get update
-        sudo apt-get install --reinstall build-essential
+      run: sudo apt install gobjc++-mingw-w64 --reinstall build-essential
 
     - name: Build
       run: go build -v ./...
