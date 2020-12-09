@@ -29,6 +29,9 @@ jobs:
             dep ensure
         fi
 
+    - name: Install gobjc++
+      run: sudo apt install gobjc++-mingw-w64
+
     - name: Build
       run: go build -v ./...
 
