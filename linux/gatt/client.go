@@ -2,29 +2,20 @@ package gatt
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/marcgeld/ble"
 	"github.com/marcgeld/ble/linux/att"
 )
 
 const (
-	cccNotify   = 0x0001
-	cccIndicate = 0x0002
+	cccNotify   = uint16(0x0001)
+	cccIndicate = uint16(0x0002)
 )
-
-// NewClient returns a GATT Client.
-func NewClient(conn ble.Conn) (*Client, error) {
-	p := &Client{
-		subs: make(map[uint16]*sub),
-		conn: conn,
-	}
-	p.ac = att.NewClient(conn, p)
-	go p.ac.Loop()
-	return p, nil
-}
 
 // A Client is a GATT Client.
 type Client struct {
@@ -34,8 +25,37 @@ type Client struct {
 	name    string
 	subs    map[uint16]*sub
 
-	ac   *att.Client
-	conn ble.Conn
+	ac *att.Client
+
+	conn  ble.Conn
+	cache ble.GattCache
+}
+
+type sub struct {
+	cccdh    uint16
+	ccc      uint16
+	nHandler ble.NotificationHandler
+	iHandler ble.NotificationHandler
+	id       uint
+}
+
+// NewClient returns a GATT Client.
+func NewClient(conn ble.Conn, cache ble.GattCache, done chan bool) (*Client, error) {
+	p := &Client{
+		subs:  make(map[uint16]*sub),
+		conn:  conn,
+		cache: cache,
+	}
+	p.ac = att.NewClient(conn, p, done)
+
+	go p.ac.Loop()
+
+	return p, nil
+}
+
+func ClientWithServer(c *Client, db *att.DB) *Client {
+	c.ac = c.ac.WithServer(db)
+	return c
 }
 
 // Addr returns the address of the client.
@@ -84,6 +104,31 @@ func (p *Client) DiscoverProfile(force bool) (*ble.Profile, error) {
 	return p.profile, nil
 }
 
+func (p *Client) DiscoverAndCacheProfile(force bool) (*ble.Profile, error) {
+	if !force {
+		//check cache to see if we have the profile already
+		if p.cache != nil {
+			profile, err := p.cache.Load(p.Addr())
+			if err == nil {
+				p.profile = &profile
+				return &profile, nil
+			}
+		}
+	}
+
+	profile, err := p.DiscoverProfile(force)
+	if err != nil {
+		return nil, err
+	}
+
+	err = p.cache.Store(p.Addr(), *profile, true)
+	if err != nil {
+		return profile, err
+	}
+
+	return profile, nil
+}
+
 // DiscoverServices finds all the primary services on a server. [Vol 3, Part G, 4.4.1]
 // If filter is specified, only filtered services are returned.
 func (p *Client) DiscoverServices(filter []ble.UUID) ([]*ble.Service, error) {
@@ -114,6 +159,10 @@ func (p *Client) DiscoverServices(filter []ble.UUID) ([]*ble.Service, error) {
 				p.profile.Services = append(p.profile.Services, s)
 			}
 			if endh == 0xFFFF {
+				return p.profile.Services, nil
+			}
+
+			if len(p.profile.Services) == len(filter) {
 				return p.profile.Services, nil
 			}
 			start = endh + 1
@@ -296,10 +345,12 @@ func (p *Client) Subscribe(c *ble.Characteristic, ind bool, h ble.NotificationHa
 	if c.CCCD == nil {
 		return fmt.Errorf("CCCD not found")
 	}
+	flag := cccNotify
 	if ind {
-		return p.setHandlers(c.CCCD.Handle, c.ValueHandle, cccIndicate, h)
+		flag = cccIndicate
 	}
-	return p.setHandlers(c.CCCD.Handle, c.ValueHandle, cccNotify, h)
+
+	return p.setHandlers(c.CCCD.Handle, c.ValueHandle, flag, h)
 }
 
 // Unsubscribe unsubscribes to indication (if ind is set true), or notification
@@ -319,7 +370,7 @@ func (p *Client) Unsubscribe(c *ble.Characteristic, ind bool) error {
 func (p *Client) setHandlers(cccdh, vh, flag uint16, h ble.NotificationHandler) error {
 	s, ok := p.subs[vh]
 	if !ok {
-		s = &sub{cccdh, 0x0000, nil, nil}
+		s = &sub{cccdh: cccdh}
 		p.subs[vh] = s
 	}
 	switch {
@@ -340,7 +391,12 @@ func (p *Client) setHandlers(cccdh, vh, flag uint16, h ble.NotificationHandler) 
 	} else {
 		s.iHandler = h
 	}
-	return p.ac.Write(s.cccdh, v)
+
+	err := p.ac.Write(s.cccdh, v)
+	if err != nil {
+		delete(p.subs, vh)
+	}
+	return err
 }
 
 // ClearSubscriptions clears all subscriptions to notifications and indications.
@@ -384,21 +440,28 @@ func (p *Client) HandleNotification(req []byte) {
 	sub, ok := p.subs[vh]
 	if !ok {
 		// FIXME: disconnects and propagate an error to the user.
-		log.Printf("Got an unregistered notification")
+		log.Printf("got an unregistered notification")
 		return
 	}
-	fn := sub.nHandler
-	if req[0] == att.HandleValueIndicationCode {
-		fn = sub.iHandler
+
+	indication := req[0] == att.HandleValueIndicationCode
+	nd := req[3:]
+
+	switch {
+	case indication && sub.iHandler != nil:
+		sub.iHandler(sub.id, nd)
+	case sub.nHandler != nil:
+		sub.nHandler(sub.id, nd)
+	default:
+		log.Printf("no handler, dropping data vh 0x%x, indication %v, id %v, %v", vh, indication, sub.id, hex.EncodeToString(nd))
 	}
-	if fn != nil {
-		fn(req[3:])
-	}
+	sub.id++
 }
 
-type sub struct {
-	cccdh    uint16
-	ccc      uint16
-	nHandler ble.NotificationHandler
-	iHandler ble.NotificationHandler
+func (p *Client) Pair(authData ble.AuthData, to time.Duration) error {
+	return p.conn.Pair(authData, to)
+}
+
+func (p *Client) StartEncryption(ch chan ble.EncryptionChangedInfo) error {
+	return p.conn.StartEncryption(ch)
 }

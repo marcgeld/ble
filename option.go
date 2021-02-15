@@ -1,7 +1,6 @@
 package ble
 
 import (
-	"github.com/marcgeld/ble/linux/hci/evt"
 	"time"
 
 	"github.com/marcgeld/ble/linux/hci/cmd"
@@ -9,27 +8,29 @@ import (
 
 // DeviceOption is an interface which the device should implement to allow using configuration options
 type DeviceOption interface {
-	SetDeviceID(int) error
 	SetDialerTimeout(time.Duration) error
 	SetListenerTimeout(time.Duration) error
 	SetConnParams(cmd.LECreateConnection) error
 	SetScanParams(cmd.LESetScanParameters) error
 	SetAdvParams(cmd.LESetAdvertisingParameters) error
-	SetConnectedHandler(f func(evt.LEConnectionComplete)) error
-	SetDisconnectedHandler(f func(evt.DisconnectionComplete)) error
 	SetPeripheralRole() error
 	SetCentralRole() error
+	SetAdvHandlerSync(bool) error
+	SetErrorHandler(handler func(error)) error
+	EnableSecurity(interface{}) error
+
+	SetTransportHCISocket(id int) error
+	SetTransportH4Socket(addr string, timeout time.Duration) error
+	SetTransportH4Uart(path string) error
+	SetGattCacheFile(filename string)
 }
 
 // An Option is a configuration function, which configures the device.
 type Option func(DeviceOption) error
 
-// OptDeviceID sets HCI device ID.
+// DEPRECATED: legacy stuff
 func OptDeviceID(id int) Option {
-	return func(opt DeviceOption) error {
-		opt.SetDeviceID(id)
-		return nil
-	}
+	return OptTransportHCISocket(id)
 }
 
 // OptDialerTimeout sets dialing timeout for Dialer.
@@ -72,20 +73,6 @@ func OptAdvParams(param cmd.LESetAdvertisingParameters) Option {
 	}
 }
 
-func OptConnectHandler(f func(evt.LEConnectionComplete)) Option {
-	return func(opt DeviceOption) error {
-		opt.SetConnectedHandler(f)
-		return nil
-	}
-}
-
-func OptDisconnectHandler(f func(evt.DisconnectionComplete)) Option {
-	return func(opt DeviceOption) error {
-		opt.SetDisconnectedHandler(f)
-		return nil
-	}
-}
-
 // OptPeripheralRole configures the device to perform Peripheral tasks.
 func OptPeripheralRole() Option {
 	return func(opt DeviceOption) error {
@@ -98,6 +85,61 @@ func OptPeripheralRole() Option {
 func OptCentralRole() Option {
 	return func(opt DeviceOption) error {
 		opt.SetCentralRole()
+		return nil
+	}
+}
+
+// OptAdvHandlerSync sets sync adv handling
+func OptAdvHandlerSync(sync bool) Option {
+	return func(opt DeviceOption) error {
+		opt.SetAdvHandlerSync(sync)
+		return nil
+	}
+}
+
+// OptErrorHandler sets error handler
+func OptErrorHandler(handler func(error)) Option {
+	return func(opt DeviceOption) error {
+		opt.SetErrorHandler(handler)
+		return nil
+	}
+}
+
+// OptEnableSecurity enables bonding with devices
+func OptEnableSecurity(bondManager interface{}) Option {
+	return func(opt DeviceOption) error {
+		opt.EnableSecurity(bondManager)
+		return nil
+	}
+}
+
+// OptTransportHCISocket set hci socket transport
+func OptTransportHCISocket(id int) Option {
+	return func(opt DeviceOption) error {
+		opt.SetTransportHCISocket(id)
+		return nil
+	}
+}
+
+// OptTransportH4Socket set h4 socket transport
+func OptTransportH4Socket(addr string, timeout time.Duration) Option {
+	return func(opt DeviceOption) error {
+		opt.SetTransportH4Socket(addr, timeout)
+		return nil
+	}
+}
+
+// OptTransportH4Uart set h4 uart transport
+func OptTransportH4Uart(path string) Option {
+	return func(opt DeviceOption) error {
+		opt.SetTransportH4Uart(path)
+		return nil
+	}
+}
+
+func OptGattCacheFile(filename string) Option {
+	return func(opt DeviceOption) error {
+		opt.SetGattCacheFile(filename)
 		return nil
 	}
 }

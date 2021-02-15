@@ -5,26 +5,48 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"runtime"
 	"strings"
 	"time"
 
-	"github.com/marcgeld/ble"
-	"github.com/marcgeld/ble/examples/lib/dev"
 	"github.com/pkg/errors"
+	"github.com/marcgeld/ble"
+	"github.com/marcgeld/ble/linux"
 )
 
 var (
-	device = flag.String("device", "default", "implementation of ble")
-	name   = flag.String("name", "Gopher", "name of remote peripheral")
-	addr   = flag.String("addr", "adce183268914777af3e627eeb3c6717", "address of remote peripheral (MAC on Linux, UUID on OS X)")
+	name   = flag.String("name", "Thingy", "name of remote peripheral")
+	addr   = flag.String("addr", "", "address of remote peripheral (MAC on Linux, UUID on OS X)")
+	h4skt  = flag.String("h4s", "", "h4 socket server address")
+	h4uart = flag.String("h4u", "/dev/ttyACM0", "h4 uart")
+	hciSkt = flag.Int("device", -1, "hci index")
 	sub    = flag.Duration("sub", 0, "subscribe to notification and indication for a specified period")
-	sd     = flag.Duration("sd", 10*time.Second, "scanning duration, 0 for indefinitely")
+	sd     = flag.Duration("sd", 20*time.Second, "scanning duration, 0 for indefinitely")
+	bond   = flag.Bool("bond", false, "attempt to bond on connection")
+	dump   = flag.Bool("dump", false, "dump stack?")
 )
 
 func main() {
 	flag.Parse()
+	log.Printf("hciSkt: hci%v", *hciSkt)
+	log.Printf("h4skt: %v", *h4skt)
+	log.Printf("h4uart: %v", *h4uart)
+	log.Printf("name: %v", *name)
+	log.Printf("addr: %v", *addr)
 
-	d, err := dev.NewDevice(*device)
+	var opt ble.Option
+	switch {
+	case *hciSkt >= 0:
+		opt = ble.OptTransportHCISocket(*hciSkt)
+	case len(*h4skt) > 0:
+		opt = ble.OptTransportH4Socket(*h4skt, 2*time.Second)
+	case len(*h4uart) > 0:
+		opt = ble.OptTransportH4Uart(*h4uart)
+	default:
+		log.Fatalf("no valid device to init")
+	}
+
+	d, err := linux.NewDeviceWithNameAndHandler("", nil, opt)
 	if err != nil {
 		log.Fatalf("can't new device : %s", err)
 	}
@@ -32,12 +54,14 @@ func main() {
 
 	// Default to search device with name of Gopher (or specified by user).
 	filter := func(a ble.Advertisement) bool {
+		fmt.Println(a.Addr(), a.LocalName())
 		return strings.ToUpper(a.LocalName()) == strings.ToUpper(*name)
 	}
 
 	// If addr is specified, search for addr instead.
 	if len(*addr) != 0 {
 		filter = func(a ble.Advertisement) bool {
+			fmt.Println(a.Addr())
 			return strings.ToUpper(a.Addr().String()) == strings.ToUpper(*addr)
 		}
 	}
@@ -61,39 +85,66 @@ func main() {
 		close(done)
 	}()
 
+	log.Println("connected!")
+	<-time.After(2000 * time.Millisecond)
+
+	rxMtu := ble.MaxMTU
+	txMtu, err := cln.ExchangeMTU(rxMtu)
+	if err != nil {
+		fmt.Printf("%v - MTU exchange error: %v\n", *addr, err)
+		// stay connected
+	} else {
+		fmt.Printf("%v - MTU exchange success: rx %v, tx %v\n", *addr, rxMtu, txMtu)
+	}
+
 	fmt.Printf("Discovering profile...\n")
 	p, err := cln.DiscoverProfile(true)
 	if err != nil {
 		log.Fatalf("can't discover profile: %s", err)
 	}
 
+	log.Println("exploring")
 	// Start the exploration.
 	explore(cln, p)
+
+	dumpStack()
 
 	// Disconnect the connection. (On OS X, this might take a while.)
 	fmt.Printf("Disconnecting [ %s ]... (this might take up to few seconds on OS X)\n", cln.Addr())
 	cln.CancelConnection()
 
 	<-done
+
+	time.Sleep(125 * time.Millisecond)
+
+	dumpStack()
+}
+
+func dumpStack() {
+	if !*dump {
+		return
+	}
+	// dump call stack
+	buf := make([]byte, 1<<16)
+	runtime.Stack(buf, true)
+	fmt.Printf("%s", buf)
 }
 
 func explore(cln ble.Client, p *ble.Profile) error {
 	for _, s := range p.Services {
 		fmt.Printf("    Service: %s %s, Handle (0x%02X)\n", s.UUID, ble.Name(s.UUID), s.Handle)
 
-		continue
-
 		for _, c := range s.Characteristics {
 			fmt.Printf("      Characteristic: %s %s, Property: 0x%02X (%s), Handle(0x%02X), VHandle(0x%02X)\n",
 				c.UUID, ble.Name(c.UUID), c.Property, propString(c.Property), c.Handle, c.ValueHandle)
-			//if (c.Property & ble.CharRead) != 0 {
-			//	b, err := cln.ReadCharacteristic(c)
-			//	if err != nil {
-			//		fmt.Printf("Failed to read characteristic: %s\n", err)
-			//		continue
-			//	}
-			//	fmt.Printf("        Value         %x | %q\n", b, b)
-			//}
+			if (c.Property & ble.CharRead) != 0 {
+				b, err := cln.ReadCharacteristic(c)
+				if err != nil {
+					fmt.Printf("Failed to read characteristic: %s\n", err)
+					continue
+				}
+				fmt.Printf("        Value         %x | %q\n", b, b)
+			}
 
 			for _, d := range c.Descriptors {
 				fmt.Printf("        Descriptor: %s %s, Handle(0x%02x)\n", d.UUID, ble.Name(d.UUID), d.Handle)
@@ -122,7 +173,7 @@ func explore(cln ble.Client, p *ble.Profile) error {
 
 				if (c.Property & ble.CharNotify) != 0 {
 					fmt.Printf("\n-- Subscribe to notification for %s --\n", *sub)
-					h := func(req []byte) { fmt.Printf("Notified: %q [ % X ]\n", string(req), req) }
+					h := func(id uint, req []byte) { fmt.Printf("Notified: id %v, %q [ % X ]\n", id, string(req), req) }
 					if err := cln.Subscribe(c, false, h); err != nil {
 						log.Fatalf("subscribe failed: %s", err)
 					}
@@ -134,7 +185,7 @@ func explore(cln ble.Client, p *ble.Profile) error {
 				}
 				if (c.Property & ble.CharIndicate) != 0 {
 					fmt.Printf("\n-- Subscribe to indication of %s --\n", *sub)
-					h := func(req []byte) { fmt.Printf("Indicated: %q [ % X ]\n", string(req), req) }
+					h := func(id uint, req []byte) { fmt.Printf("Indicated: id %v, %q [ % X ]\n", id, string(req), req) }
 					if err := cln.Subscribe(c, true, h); err != nil {
 						log.Fatalf("subscribe failed: %s", err)
 					}

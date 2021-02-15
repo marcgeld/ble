@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/marcgeld/ble/darwin"
 	"log"
 	"time"
 
@@ -16,13 +15,11 @@ import (
 
 var (
 	device = flag.String("device", "default", "implementation of ble")
-	du     = flag.Duration("du", 500*time.Second, "advertising duration, 0 for indefinitely")
+	du     = flag.Duration("du", 5*time.Second, "advertising duration, 0 for indefinitely")
 )
 
 func main() {
 	flag.Parse()
-
-	darwin.Logger.SetLevel(1000)
 
 	d, err := dev.NewDevice(*device)
 	if err != nil {
@@ -37,7 +34,7 @@ func main() {
 	if err := ble.AddService(testSvc); err != nil {
 		log.Fatalf("can't add service: %s", err)
 	}
-	ble.RemoveAllServices()
+
 	// Advertise for specified durantion, or until interrupted by user.
 	fmt.Printf("Advertising for %s...\n", *du)
 	ctx := ble.WithSigHandler(context.WithTimeout(context.Background(), *du))

@@ -12,7 +12,7 @@ var (
 )
 
 // HCI Command Errors  [Vol2, Part D, 1.3 ]
-// FIXME: Terrible shorthand. String them properly.
+// FIXME: Terrible shorthand. Name them properly.
 const (
 	ErrUnknownCommand       ErrCommand = 0x01 // Unknown HCI Command
 	ErrConnID               ErrCommand = 0x02 // Unknown Connection Identifier
@@ -97,7 +97,7 @@ var errCmd = map[ErrCommand]string{
 	0x01: "Unknown HCI Command",
 	0x02: "Unknown Connection Identifier",
 	0x03: "Hardware Failure",
-	0x04: "Page Timeou",
+	0x04: "Page Timeout",
 	0x05: "Authentication Failure",
 	0x06: "PIN or Key Missing",
 	0x07: "Memory Capacity Exceeded",

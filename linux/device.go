@@ -2,14 +2,16 @@ package linux
 
 import (
 	"context"
+	"fmt"
 	"io"
-	"log"
 
+	smp2 "github.com/marcgeld/ble/linux/hci/smp"
+
+	"github.com/pkg/errors"
 	"github.com/marcgeld/ble"
 	"github.com/marcgeld/ble/linux/att"
 	"github.com/marcgeld/ble/linux/gatt"
 	"github.com/marcgeld/ble/linux/hci"
-	"github.com/pkg/errors"
 )
 
 // NewDevice returns the default HCI device.
@@ -23,7 +25,7 @@ func NewDeviceWithName(name string, opts ...ble.Option) (*Device, error) {
 }
 
 func NewDeviceWithNameAndHandler(name string, handler ble.NotifyHandler, opts ...ble.Option) (*Device, error) {
-	dev, err := hci.NewHCI(opts...)
+	dev, err := hci.NewHCI(smp2.NewSmpFactory(nil), opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "can't create hci")
 	}
@@ -38,7 +40,6 @@ func NewDeviceWithNameAndHandler(name string, handler ble.NotifyHandler, opts ..
 		return nil, errors.Wrap(err, "can't create server")
 	}
 
-	// mtu := ble.DefaultMTU
 	mtu := ble.MaxMTU // TODO: get this from user using Option.
 	if mtu > ble.MaxMTU {
 		dev.Close()
@@ -57,8 +58,13 @@ func loop(dev *hci.HCI, s *gatt.Server, mtu int) {
 			// An EOF error indicates that the HCI socket was closed during
 			// the read.  Don't report this as an error.
 			if err != io.EOF {
-				log.Printf("can't accept: %s", err)
+				fmt.Printf("can't accept: %s\n", err)
 			}
+			return
+		}
+
+		if l2c == nil {
+			fmt.Printf("l2c nil\n")
 			return
 		}
 
@@ -70,10 +76,10 @@ func loop(dev *hci.HCI, s *gatt.Server, mtu int) {
 		as, err := att.NewServer(s.DB(), l2c)
 		s.Unlock()
 		if err != nil {
-			log.Printf("can't create ATT server: %s", err)
+			fmt.Printf("can't create ATT server: %s\n", err)
 			continue
-
 		}
+		fmt.Println("starting server loop")
 		go as.Loop()
 	}
 }
@@ -167,11 +173,11 @@ func (d *Device) AdvertiseIBeacon(ctx context.Context, u ble.UUID, major, minor 
 	return ctx.Err()
 }
 
-// Scan starts scanning. Duplicated advertisements will be filtered out if allowDup is set to false.
 func (d *Device) Scan(ctx context.Context, allowDup bool, h ble.AdvHandler) error {
 	if err := d.HCI.SetAdvHandler(h); err != nil {
 		return err
 	}
+
 	if err := d.HCI.Scan(allowDup); err != nil {
 		return err
 	}
@@ -185,6 +191,20 @@ func (d *Device) Dial(ctx context.Context, a ble.Addr) (ble.Client, error) {
 	// d.HCI.Dial is a blocking call, although most of time it should return immediately.
 	// But in case passing wrong device address or the device went non-connectable, it blocks.
 	cln, err := d.HCI.Dial(ctx, a)
+	if err != nil {
+		return nil, errors.Wrap(err, "device")
+	}
+
+	if cln == nil {
+		return nil, fmt.Errorf("device: unexpectedly received nil client")
+	}
+
+	if d.Server.DB() != nil {
+		//get client access to the local GATT DB
+		gattClient := cln.(*gatt.Client)
+		cln = gatt.ClientWithServer(gattClient, d.Server.DB())
+	}
+
 	return cln, errors.Wrap(err, "can't dial")
 }
 

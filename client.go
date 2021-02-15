@@ -1,5 +1,7 @@
 package ble
 
+import "time"
+
 // A Client is a GATT client.
 type Client interface {
 	// Addr returns platform specific unique ID of the remote peripheral, e.g. MAC on Linux, Client UUID on OS X.
@@ -14,6 +16,10 @@ type Client interface {
 
 	// DiscoverProfile discovers the whole hierarchy of a server.
 	DiscoverProfile(force bool) (*Profile, error)
+
+	// DiscoverAndCacheProfile discovers the whole hierarchy of a server and caches it to a local file
+	// If a cache file is not designated via an option, this function will return an error
+	DiscoverAndCacheProfile(force bool) (*Profile, error)
 
 	// DiscoverServices finds all the primary services on a server. [Vol 3, Part G, 4.4.1]
 	// If filter is specified, only filtered services are returned.
@@ -69,4 +75,8 @@ type Client interface {
 
 	// Conn returns the client's current connection.
 	Conn() Conn
+
+	Pair(AuthData, time.Duration) error
+
+	StartEncryption(c chan EncryptionChangedInfo) error
 }

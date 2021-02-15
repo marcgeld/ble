@@ -2,17 +2,13 @@ package hci
 
 import (
 	"errors"
-	"github.com/marcgeld/ble/linux/hci/evt"
+	"fmt"
 	"time"
+
+	"github.com/marcgeld/ble/cache"
 
 	"github.com/marcgeld/ble/linux/hci/cmd"
 )
-
-// SetDeviceID sets HCI device ID.
-func (h *HCI) SetDeviceID(id int) error {
-	h.id = id
-	return nil
-}
 
 // SetDialerTimeout sets dialing timeout for Dialer.
 func (h *HCI) SetDialerTimeout(d time.Duration) error {
@@ -32,21 +28,21 @@ func (h *HCI) SetConnParams(param cmd.LECreateConnection) error {
 	return nil
 }
 
+func (h *HCI) EnableSecurity(bm interface{}) error {
+	bondManager, ok := bm.(BondManager)
+	if !ok {
+		return fmt.Errorf("unknown bond manager type")
+	}
+	h.smpEnabled = true
+	if h.smp != nil {
+		h.smp.SetBondManager(bondManager)
+	}
+	return nil
+}
+
 // SetScanParams overrides default scanning parameters.
 func (h *HCI) SetScanParams(param cmd.LESetScanParameters) error {
 	h.params.scanParams = param
-	return nil
-}
-
-// SetConnectedHandler sets handler to be called when new connection is established.
-func (h *HCI) SetConnectedHandler(f func(complete evt.LEConnectionComplete)) error {
-	h.connectedHandler = f
-	return nil
-}
-
-// SetDisconnectedHandler sets handler to be called on disconnect.
-func (h *HCI) SetDisconnectedHandler(f func(evt.DisconnectionComplete)) error {
-	h.disconnectedHandler = f
 	return nil
 }
 
@@ -64,4 +60,44 @@ func (h *HCI) SetPeripheralRole() error {
 // SetCentralRole is not supported
 func (h *HCI) SetCentralRole() error {
 	return errors.New("Not supported")
+}
+
+// SetAdvHandlerSync overrides default advertising handler behavior (async)
+func (h *HCI) SetAdvHandlerSync(sync bool) error {
+	h.advHandlerSync = sync
+	return nil
+}
+
+// SetErrorHandler ...
+func (h *HCI) SetErrorHandler(handler func(error)) error {
+	h.errorHandler = handler
+	return nil
+}
+
+// SetTransportHCISocket sets HCI device for hci socket
+func (h *HCI) SetTransportHCISocket(id int) error {
+	h.transport = transport{
+		hci: &transportHci{id},
+	}
+	return nil
+}
+
+// SetTransportH4Socket sets h4 socket server
+func (h *HCI) SetTransportH4Socket(addr string, timeout time.Duration) error {
+	h.transport = transport{
+		h4socket: &transportH4Socket{addr, timeout},
+	}
+	return nil
+}
+
+// SetTransportH4Uart sets h4 uart path
+func (h *HCI) SetTransportH4Uart(path string) error {
+	h.transport = transport{
+		h4uart: &transportH4Uart{path},
+	}
+	return nil
+}
+
+func (h *HCI) SetGattCacheFile(filename string) {
+	h.cache = cache.New(filename)
 }

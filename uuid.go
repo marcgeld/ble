@@ -140,7 +140,7 @@ var knownUUID = map[string]struct{ Name, Type string }{
 	"2908": {Name: "Report Reference", Type: "org.bluetooth.descriptor.report_reference"},
 
 	// A dictionary of known characteristic names and type (keyed by characteristic uuid)
-	"2a00": {Name: "Device String", Type: "org.bluetooth.characteristic.ble.device_name"},
+	"2a00": {Name: "Device Name", Type: "org.bluetooth.characteristic.ble.device_name"},
 	"2a01": {Name: "Appearance", Type: "org.bluetooth.characteristic.ble.appearance"},
 	"2a02": {Name: "Peripheral Privacy Flag", Type: "org.bluetooth.characteristic.ble.peripheral_privacy_flag"},
 	"2a03": {Name: "Reconnection Address", Type: "org.bluetooth.characteristic.ble.reconnection_address"},
@@ -174,7 +174,7 @@ var knownUUID = map[string]struct{ Name, Type string }{
 	"2a26": {Name: "Firmware Revision String", Type: "org.bluetooth.characteristic.firmware_revision_string"},
 	"2a27": {Name: "Hardware Revision String", Type: "org.bluetooth.characteristic.hardware_revision_string"},
 	"2a28": {Name: "Software Revision String", Type: "org.bluetooth.characteristic.software_revision_string"},
-	"2a29": {Name: "Manufacturer String String", Type: "org.bluetooth.characteristic.manufacturer_name_string"},
+	"2a29": {Name: "Manufacturer Name String", Type: "org.bluetooth.characteristic.manufacturer_name_string"},
 	"2a2a": {Name: "IEEE 11073-20601 Regulatory Certification Data List", Type: "org.bluetooth.characteristic.ieee_11073-20601_regulatory_certification_data_list"},
 	"2a2b": {Name: "Current Time", Type: "org.bluetooth.characteristic.current_time"},
 	"2a31": {Name: "Scan Refresh", Type: "org.bluetooth.characteristic.scan_refresh"},

@@ -1,7 +1,7 @@
 package hci
 
 import (
-	"github.com/mgutz/logxi/v1"
+	"github.com/marcgeld/ble"
 )
 
-var logger = log.New("hci")
+var logger = ble.Logger

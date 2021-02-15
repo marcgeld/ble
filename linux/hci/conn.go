@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"time"
 
+	"github.com/pkg/errors"
 	"github.com/marcgeld/ble"
 	"github.com/marcgeld/ble/linux/hci/cmd"
 	"github.com/marcgeld/ble/linux/hci/evt"
-	"github.com/pkg/errors"
 )
 
 // Conn ...
@@ -63,9 +64,17 @@ type Conn struct {
 
 	// leFrame is set to be true when the LE Credit based flow control is used.
 	leFrame bool
+
+	smp        SmpManager
+	encChanged chan ble.EncryptionChangedInfo
+}
+
+type Encrypter interface {
+	Encrypt() error
 }
 
 func newConn(h *HCI, param evt.LEConnectionComplete) *Conn {
+
 	c := &Conn{
 		hci:   h,
 		ctx:   context.Background(),
@@ -87,13 +96,25 @@ func newConn(h *HCI, param evt.LEConnectionComplete) *Conn {
 		chDone: make(chan struct{}),
 	}
 
+	if c.hci.smpEnabled {
+		c.smp = c.hci.smp.Create(defaultSmpConfig)
+		c.initPairingContext()
+		c.smp.SetWritePDUFunc(c.writePDU)
+		c.smp.SetEncryptFunc(c.encrypt)
+	}
+
 	go func() {
 		for {
 			if err := c.recombine(); err != nil {
 				if err != io.EOF {
-					// TODO: wrap and pass the error up.
-					// err := errors.Wrap(err, "recombine failed")
-					_ = logger.Error("recombine failed: ", "err", err)
+					err = errors.Wrap(err, "recombine")
+					c.hci.dispatchError(err)
+
+					//attempt to cleanup
+					logger.Error("conn", "error in recombine, cleaning up connection handle")
+					if err := c.hci.cleanupConnectionHandle(c.param.ConnectionHandle()); err != nil {
+						fmt.Printf("recombine cleanup: %v\n", err)
+					}
 				}
 				close(c.chInPDU)
 				return
@@ -111,6 +132,20 @@ func (c *Conn) Context() context.Context {
 // SetContext sets the context that is used by this Conn.
 func (c *Conn) SetContext(ctx context.Context) {
 	c.ctx = ctx
+}
+
+func (c *Conn) Pair(authData ble.AuthData, to time.Duration) error {
+	return c.smp.Pair(authData, to)
+}
+
+func (c *Conn) StartEncryption(ch chan ble.EncryptionChangedInfo) error {
+	c.encChanged = ch
+	err := c.smp.StartEncryption()
+	if err != nil {
+		c.encChanged = nil
+	}
+
+	return err
 }
 
 // Read copies re-assembled L2CAP PDUs into sdu.
@@ -184,6 +219,77 @@ func (c *Conn) Write(sdu []byte) (int, error) {
 	return sent, nil
 }
 
+func (c *Conn) initPairingContext() {
+	smp := c.smp
+
+	la := c.LocalAddr().Bytes()
+	lat := uint8(0x00)
+	if (la[0] & 0xc0) == 0xc0 {
+		lat = 0x01
+	}
+	ra := c.RemoteAddr().Bytes()
+	rat := c.param.PeerAddressType()
+
+	smp.InitContext(la, ra, lat, rat)
+}
+
+func (c *Conn) encrypt(bi BondInfo) error {
+	legacy, stk := c.smp.LegacyPairingInfo()
+	//if a short term key is present, use it as the long term key
+	if legacy && len(stk) > 0 {
+		fmt.Println("encrypting with short term key")
+		return c.stkEncrypt(stk)
+	}
+
+	if bi == nil {
+		return fmt.Errorf("no bond information")
+	}
+
+	ltk := bi.LongTermKey()
+	if ltk == nil {
+		return fmt.Errorf("no ltk present")
+	}
+
+	m := cmd.LEStartEncryption{}
+	m.ConnectionHandle = c.param.ConnectionHandle()
+
+	eDiv := bi.EDiv()
+	randVal := bi.Random()
+
+	if bi.Legacy() {
+		//expect LTK, EDiv, and Rand to be present
+		if len(ltk) != 16 {
+			return fmt.Errorf("invalid length for ltk")
+		}
+
+		if eDiv == 0 || randVal == 0 {
+			return fmt.Errorf("ediv and random must not be 0 for legacy pairing")
+		}
+	}
+
+	for i, v := range ltk {
+		m.LongTermKey[i] = v
+	}
+
+	m.EncryptedDiversifier = eDiv
+	m.RandomNumber = randVal
+
+	return c.hci.Send(&m, nil)
+}
+
+func (c *Conn) stkEncrypt(key []byte) error {
+	m := cmd.LEStartEncryption{}
+	m.ConnectionHandle = c.param.ConnectionHandle()
+	for i, v := range key {
+		m.LongTermKey[i] = v
+	}
+
+	m.EncryptedDiversifier = 0
+	m.RandomNumber = 0
+
+	return c.hci.Send(&m, nil)
+}
+
 // writePDU breaks down a L2CAP PDU into fragments if it's larger than the HCI buffer size. [Vol 3, Part A, 7.2.1]
 func (c *Conn) writePDU(pdu []byte) (int, error) {
 	sent := 0
@@ -244,20 +350,26 @@ func (c *Conn) writePDU(pdu []byte) (int, error) {
 		sent += flen
 
 		flags = (pbfContinuing << 4) // Set "continuing" in the boundary flags for the rest of fragments, if any.
-		pdu = pdu[flen:]             // Advence the point
+		pdu = pdu[flen:]             // Advance the point
 	}
 	return sent, nil
 }
 
 // Recombines fragments into a L2CAP PDU. [Vol 3, Part A, 7.2.2]
 func (c *Conn) recombine() error {
-	pkt, ok := <-c.chInPkt
-	if !ok {
+	var pkt packet
+	var ok bool
+	select {
+	case <-c.hci.done:
 		return io.EOF
+	case pkt, ok = <-c.chInPkt:
+		if !ok {
+			return io.EOF
+		}
 	}
 
 	p := pdu(pkt.data())
-
+	logger.Debug("recombine", "pdu in:", fmt.Sprintf("% X", pkt.data()))
 	// Currently, check for LE-U only. For channels that we don't recognizes,
 	// re-combine them anyway, and discard them later when we dispatch the PDU
 	// according to CID.
@@ -272,8 +384,14 @@ func (c *Conn) recombine() error {
 		p = append(p, pdu(pkt.data())...)
 	}
 	for len(p) < 4+p.dlen() {
-		if pkt, ok = <-c.chInPkt; !ok || (pkt.pbf()&pbfContinuing) == 0 {
-			return io.ErrUnexpectedEOF
+		//need to wait on more data
+		select {
+		case <-c.hci.done:
+			return io.EOF
+		case pkt, ok = <-c.chInPkt:
+			if !ok || (pkt.pbf()&pbfContinuing) == 0 {
+				return io.ErrUnexpectedEOF
+			}
 		}
 		p = append(p, pdu(pkt.data())...)
 	}
@@ -283,13 +401,40 @@ func (c *Conn) recombine() error {
 	case cidLEAtt:
 		c.chInPDU <- p
 	case cidLESignal:
-		c.handleSignal(p)
-	case cidSMP:
-		c.handleSMP(p)
+		_ = c.handleSignal(p)
+	case CidSMP:
+		if err := c.smp.Handle(p); err != nil {
+			logger.Error("smp.Handle: ", err.Error())
+		}
+
 	default:
 		logger.Info("recombine()", "unrecognized CID", fmt.Sprintf("%04X, [%X]", p.cid(), p))
 	}
 	return nil
+}
+
+func (c *Conn) handleEncryptionChanged(status uint8, enabled uint8) {
+	var err error
+	if status != 0x00 {
+		cmdErr := ErrCommand(status)
+		err = fmt.Errorf(errCmd[cmdErr])
+		e := c.smp.DeleteBondInfo()
+		if e != nil {
+			logger.Error("failed to delete bond info", e.Error())
+		}
+	}
+
+	info := ble.EncryptionChangedInfo{Status: int(status), Err: err, Enabled: enabled == 0x01}
+	if c.encChanged != nil {
+		select {
+		case c.encChanged <- info:
+			return
+		default:
+			logger.Error("failed to send encryption changed status to channel:", fmt.Sprint(info))
+		}
+	} else {
+		logger.Info(fmt.Sprintf("encryption changed - status: %v, err %v", status, err))
+	}
 }
 
 // Disconnected returns a receiving channel, which is closed when the connection disconnects.
@@ -304,11 +449,14 @@ func (c *Conn) Close() error {
 		// Return if it's already closed.
 		return nil
 	default:
-		c.hci.Send(&cmd.Disconnect{
+		err := c.hci.Send(&cmd.Disconnect{
 			ConnectionHandle: c.param.ConnectionHandle(),
 			Reason:           0x13,
 		}, nil)
-		return nil
+
+		logger.Debug("conn", "connection close called")
+		_ = c.hci.cleanupConnectionHandle(c.param.ConnectionHandle())
+		return err
 	}
 }
 
@@ -318,7 +466,7 @@ func (c *Conn) LocalAddr() ble.Addr { return c.hci.Addr() }
 // RemoteAddr returns remote device's MAC address.
 func (c *Conn) RemoteAddr() ble.Addr {
 	a := c.param.PeerAddress()
-	return net.HardwareAddr([]byte{a[5], a[4], a[3], a[2], a[1], a[0]})
+	return ble.NewAddr(net.HardwareAddr([]byte{a[5], a[4], a[3], a[2], a[1], a[0]}).String())
 }
 
 // RxMTU returns the MTU which the upper layer is capable of accepting.

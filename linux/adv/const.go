@@ -30,8 +30,8 @@ const (
 	allUUID32         = 0x05 // Complete List of 32-bit Service Class UUIDs
 	someUUID128       = 0x06 // Incomplete List of 128-bit Service Class UUIDs
 	allUUID128        = 0x07 // Complete List of 128-bit Service Class UUIDs
-	shortName         = 0x08 // Shortened Local String
-	completeName      = 0x09 // Complete Local String
+	shortName         = 0x08 // Shortened Local Name
+	completeName      = 0x09 // Complete Local Name
 	txPower           = 0x0A // Tx Power Level
 	classOfDevice     = 0x0D // Class of Device
 	simplePairingC192 = 0x0E // Simple Pairing Hash C-192

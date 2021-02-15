@@ -6,14 +6,18 @@ import (
 	"net"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/marcgeld/ble"
 	"github.com/marcgeld/ble/linux/adv"
 	"github.com/marcgeld/ble/linux/gatt"
-	"github.com/pkg/errors"
+	"github.com/marcgeld/ble/sliceops"
 )
 
 // Addr ...
-func (h *HCI) Addr() ble.Addr { return h.addr }
+func (h *HCI) Addr() ble.Addr { return ble.NewAddr(h.addr.String()) }
+func (h *HCI) Bytes() []byte {
+	return ble.NewAddr(h.addr.String()).Bytes()
+}
 
 // SetAdvHandler ...
 func (h *HCI) SetAdvHandler(ah ble.AdvHandler) error {
@@ -188,20 +192,33 @@ func (h *HCI) Accept() (ble.Conn, error) {
 	case c := <-h.chSlaveConn:
 		return c, nil
 	case <-tmo:
-		return nil, fmt.Errorf("listner timed out")
+		return nil, fmt.Errorf("listener timed out")
 	}
 }
 
 // Dial ...
 func (h *HCI) Dial(ctx context.Context, a ble.Addr) (ble.Client, error) {
-	b, err := net.ParseMAC(a.String())
+	_, err := net.ParseMAC(a.String())
 	if err != nil {
 		return nil, ErrInvalidAddr
 	}
-	h.params.connParams.PeerAddress = [6]byte{b[5], b[4], b[3], b[2], b[1], b[0]}
+
+	ab := a.Bytes()
+	if len(ab) != 6 {
+		return nil, ErrInvalidAddr
+	}
+
 	if _, ok := a.(RandomAddress); ok {
 		h.params.connParams.PeerAddressType = 1
+	} else {
+		h.params.connParams.PeerAddressType = 0
 	}
+
+	ab = sliceops.SwapBuf(ab)
+	copy(h.params.connParams.PeerAddress[:], ab)
+
+	logger.Info(fmt.Sprintf("dialing addr %v, type %v", a.String(), h.params.connParams.PeerAddressType))
+
 	if err = h.Send(&h.params.connParams, nil); err != nil {
 		return nil, err
 	}
@@ -212,30 +229,42 @@ func (h *HCI) Dial(ctx context.Context, a ble.Addr) (ble.Client, error) {
 
 	select {
 	case <-ctx.Done():
-		return h.cancelDial()
+		return h.cancelDial(ctx.Err())
 	case <-tmo:
-		return h.cancelDial()
+		return h.cancelDial(fmt.Errorf("dialer timeout (%s)", h.dialerTmo))
 	case <-h.done:
 		return nil, h.err
-	case c := <-h.chMasterConn:
-		return gatt.NewClient(c)
-
+	case c, ok := <-h.chMasterConn:
+		if !ok {
+			return nil, fmt.Errorf("chMasterConn closed")
+		}
+		return gatt.NewClient(c, h.cache, h.done)
 	}
 }
 
 // cancelDial cancels the Dialing
-func (h *HCI) cancelDial() (ble.Client, error) {
+func (h *HCI) cancelDial(passthrough error) (ble.Client, error) {
 	err := h.Send(&h.params.connCancel, nil)
 	if err == nil {
-		// The pending connection was canceled successfully.
-		return nil, fmt.Errorf("connection canceled")
+		// The pending connection was canceled successfully
+		return nil, errors.Wrap(passthrough, "connection cancelled")
 	}
+
 	// The connection has been established, the cancel command
 	// failed with ErrDisallowed.
 	if err == ErrDisallowed {
-		return gatt.NewClient(<-h.chMasterConn)
+		select {
+		case c := <-h.chMasterConn:
+			logger.Debug("hci", "got connection complete after disallowed")
+			return gatt.NewClient(c, h.cache, h.done)
+		case <-time.After(50 * time.Millisecond):
+			logger.Debug("hci", "connection req timed out after a connection was made")
+			return nil, errors.Wrap(passthrough, "cancel connection failed - connection req timed out after a connection was made")
+		}
 	}
-	return nil, errors.Wrap(err, "cancel connection failed")
+
+	// some other issue
+	return nil, errors.Wrapf(passthrough, "cancel connection failed - %s", err.Error())
 }
 
 // Advertise starts advertising.
